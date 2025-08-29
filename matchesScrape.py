@@ -183,22 +183,46 @@ SCOPES = [
 creds = Credentials.from_service_account_file(SERVICE_ACCOUNT_FILE, scopes=SCOPES)
 client = gspread.authorize(creds)
 
+columns = [
+    "category", "total_games", "outcome", "mvp", "goals", "shots",
+    "assists", "saves", "mmr", "date_stamp", "time_stamp", "entry_hash"
+]
+
 # Open the spreadsheet by its name
 spreadsheet = client.open("RLData")
 
 # Access the specific worksheet (tab) named "DB"
 worksheet = spreadsheet.worksheet("DB")
 
-columns = [
-    "category", "total_games", "outcome", "mvp", "goals", "shots",
-    "assists", "saves", "mmr", "date_stamp", "time_stamp", "entry_hash"
-]
+# Step 1: Get all existing entry hashes from the sheet
+existing_hashes = set()
+existing_data = worksheet.get_all_values()
 
+# Skip header, get only the entry_hash column (assumes it's the last column)
+for row in existing_data[1:]:
+    if len(row) >= len(columns):  # ensure entry_hash exists in row
+        existing_hashes.add(row[-1])
+        
+# Step 2: Prepare only new entries (not already in sheet)
+new_entries = []
+for match in all_match_data:
+    if match["entry_hash"] not in existing_hashes:
+        row = [match[col] if match[col] is not None else '' for col in columns]
+        new_entries.append(row)
+
+'''
 # Now all_match_data contains match info grouped by session index
 for match in all_match_data:
     # print(f"{username},{match['category']},{match['total_games']},{match['outcome']},{match['mvp']},{match['goals']},{match['shots']},{match['assists']},{match['saves']},{match['mmr']},{match['date_stamp']},{match['time_stamp']},{match['entry_hash']}")
     row = [match[col] if match[col] is not None else '' for col in columns]
     print(row)
     worksheet.append_row(row, table_range='A1')
+'''
+
+# Step 3: Insert new entries at the top (after header), in reverse order
+# (so most recent shows at top in correct order)
+for row in reversed(new_entries):
+    worksheet.insert_row(row, index=2)  # index=2: insert just below header
+    print("Inserted:", row)
 
 
