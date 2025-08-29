@@ -9,30 +9,11 @@ from bs4 import BeautifulSoup
 import time
 import re
 from datetime import datetime
-import hashlib
 import gspread
 from google.oauth2.service_account import Credentials
+import hashGen
 
-def generate_entry_hash(entry):
-    """
-    entry: dict with fields like username, category, outcome, etc.
-    """
-    # Concatenate the fields into a string (adjust fields as needed)
-    hash_input = ",".join([
-        entry.get("category", ""),
-        entry.get("outcome", ""),
-        entry.get("mvp", ""),
-        str(entry.get("goals", 0)),
-        str(entry.get("shots", 0)),
-        str(entry.get("assists", 0)),
-        str(entry.get("saves", 0)),
-        str(entry.get("mmr", ""))
-    ])
-
-    # Generate SHA256 hash (you can use md5 if preferred)
-    return hashlib.sha256(hash_input.encode('utf-8')).hexdigest()
-
-# 1. Set up headless browser
+# Set up headless browser
 chrome_options = Options()
 chrome_options.add_argument("--headless=new")
 chrome_options.add_argument("--disable-gpu")
@@ -43,7 +24,7 @@ driver = webdriver.Chrome(
     options=chrome_options
 )
 
-# 2. Navigate to the page
+# Navigate to the page
 url = "https://rocketleague.tracker.network/rocket-league/profile/steam/76561198094621822/matches"
 driver.get(url)
 
@@ -57,21 +38,23 @@ except Exception as e:
     print("Could not find username:", e)
     username = None
 
-# 3. Wait until the stats table is present
+# Wait until the stats table is present
 WebDriverWait(driver, 10).until(
     EC.presence_of_element_located((By.CSS_SELECTOR, "div.sessions"))
 )
 
+# Parse HTML to extract all session tables
 soup = BeautifulSoup(driver.page_source, "html.parser")
-all_match_data = []
-
 sessions = soup.find_all("table", class_="session")
 
+# Get current time
+now = datetime.now()
+date_stamp = now.strftime("%Y-%m-%d")
+time_stamp = now.strftime("%H:%M")
+
+all_match_data = []
 for session_index, session in enumerate(sessions, start=1):
-    matches = session.find_all("div", class_="match")
-    now = datetime.now()
-    date_stamp = now.strftime("%Y-%m-%d")
-    time_stamp = now.strftime("%H:%M") 
+    matches = session.find_all("div", class_="match") 
     for match in matches:
         category_div = match.find("div", class_="match__metadata--playlist")
         category = category_div.text.strip() if category_div else None
@@ -120,10 +103,6 @@ for session_index, session in enumerate(sessions, start=1):
                 gs_text = value_div.text.strip()
                 stats = re.findall(r'\d+', gs_text)
                 try:
-                    # raw_stat = gs_text.split("(")[0].strip()
-                    # goals_str, shots_str = [x.strip() for x in gs_part.split("/")]
-                    # goals = int(goals_str)
-                    # shots = int(shots_str)
                     goals, shots = int(stats[0]), int(stats[1])
                 except Exception:
                     goals = shots = 0
@@ -153,7 +132,7 @@ for session_index, session in enumerate(sessions, start=1):
             "mmr": mmr,
         })
         
-        entry_hash = generate_entry_hash(entry)
+        entry_hash = hashGen.generate_entry_hash(entry)
         
         all_match_data.append({
             "category": category,
@@ -170,10 +149,10 @@ for session_index, session in enumerate(sessions, start=1):
             "entry_hash": entry_hash
         })
 
-# Path to your service account key file
+# Path to API key
 SERVICE_ACCOUNT_FILE = './keys/rlsheet-470421-bfaed8e9f142.json'
 
-# Define the scope
+# Define the scope for uploading to google sheets
 SCOPES = [
     'https://www.googleapis.com/auth/spreadsheets',
     'https://www.googleapis.com/auth/drive'
@@ -194,33 +173,23 @@ spreadsheet = client.open("RLData")
 # Access the specific worksheet (tab) named "DB"
 worksheet = spreadsheet.worksheet("DB")
 
-# Step 1: Get all existing entry hashes from the sheet
+# Get all existing entry hashes from the sheet
 existing_hashes = set()
 existing_data = worksheet.get_all_values()
 
-# Skip header, get only the entry_hash column (assumes it's the last column)
+# Skip header, get only the entry_hash column
 for row in existing_data[1:]:
-    if len(row) >= len(columns):  # ensure entry_hash exists in row
-        existing_hashes.add(row[-1])
+    existing_hashes.add(row[-1])
         
-# Step 2: Prepare only new entries (not already in sheet)
+# Prepare only new entries
 new_entries = []
 for match in all_match_data:
     if match["entry_hash"] not in existing_hashes:
         row = [match[col] if match[col] is not None else '' for col in columns]
         new_entries.append(row)
 
-'''
-# Now all_match_data contains match info grouped by session index
-for match in all_match_data:
-    # print(f"{username},{match['category']},{match['total_games']},{match['outcome']},{match['mvp']},{match['goals']},{match['shots']},{match['assists']},{match['saves']},{match['mmr']},{match['date_stamp']},{match['time_stamp']},{match['entry_hash']}")
-    row = [match[col] if match[col] is not None else '' for col in columns]
-    print(row)
-    worksheet.append_row(row, table_range='A1')
-'''
-
-# Step 3: Insert new entries at the top (after header), in reverse order
-# (so most recent shows at top in correct order)
+# Insert new entries at the top (after header), in reverse order
+# so most recent shows at top in correct order
 for row in reversed(new_entries):
     worksheet.insert_row(row, index=2)  # index=2: insert just below header
     print("Inserted:", row)
