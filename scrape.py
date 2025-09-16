@@ -19,22 +19,8 @@ driver = webdriver.Chrome(
 )
 
 # 2. Navigate to the page
-
-#Making url searching dynamic
-platform = "epic" # can also be steam, playstation, or xbox
-platform_id = "Gilfaroth77" # can also be steamID64, playstation username or xbox username (from my knowledge the playstation and xbox usernames would be same as epic)
-url = "https://rocketleague.tracker.network/rocket-league/profile/{platform}/{player_id}/overview"
-
-# Check to make sure url exists.
-response = requests.head(url)
-
-if response.status_code == 200:
-    print("Valid profile found, continuing...")
-    driver.get(url)
-else:
-    print(f"Profile not found! (HTTP {response.status_code})")
-    driver.quit()
-    exit()
+url = "https://rocketleague.tracker.network/rocket-league/profile/steam/76561198094621822/matches"
+driver.get(url)
 
 # 3. Wait until the stats table is present
 WebDriverWait(driver, 15).until(
